@@ -6,21 +6,14 @@ import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 contract Tender {
     using Counters for Counters.Counter;
-    Counters.Counter private _counter;
+    Counters.Counter private _contractCounter;
+    Counters.Counter private _bidCounter;
 
     address public owner;
-
-    enum Status {
-        PendingApproval,
-        Approved,
-        Rejected,
-        Revoked
-    }
 
     struct Contractor {
         address contractor;
         string name;
-        Status status;
     }
 
     struct Contract {
@@ -73,10 +66,8 @@ contract Tender {
         _;
     }
 
-    modifier onlyApprovedContractors() {
-        require(getContractorStatus(msg.sender) == Status.Approved, "Only approved contractors can call this function."
-        );
-        _;
+    function setOwner(address _newOwner) external onlyOwner {
+      owner = _newOwner;
     }
 
     constructor() {
@@ -84,10 +75,6 @@ contract Tender {
     }
 
     event ContractorAdded(address indexed contractor, string name);
-    event ContractorApproved(address indexed contractor);
-    event ContractorRejected(address indexed contractor);
-    event ContractorRevoked(address indexed contractor);
-    event ContractorStatusChange(address indexed contractor, Status status);
     event ContractCreated(
         uint indexed contractId,
         string description,
@@ -121,73 +108,32 @@ contract Tender {
     );
     event BidderPaid(address indexed contractor, uint paymentAmount);
 
-    function changeContractorStatus(address contractor, Status status) internal onlyOwner {
-        require(isContractor(contractor), "Contractor does not exist.");
-        contractors[contractor].status = status;
-
-        emit ContractorStatusChange(
-            contractors[contractor].contractor,
-            contractors[contractor].status
-        );
-    }
-
     function addContractor(string calldata name) external {
         require(!isContractor(msg.sender), "Contractor already exists.");
         contractors[msg.sender] = Contractor(
             msg.sender,
-            name,
-            Status.PendingApproval
+            name
         );
 
         emit ContractorAdded(msg.sender, contractors[msg.sender].name);
     }
 
-    function approveContractor(address contractor) external onlyOwner {
-        require(isContractor(contractor), "Contractor does not exist");
-        require(
-            getContractorStatus(contractor) == Status.PendingApproval,
-            "Contractor is not pending approval"
-        );
-
-        changeContractorStatus(contractor, Status.Approved);
-
-        emit ContractorApproved(contractors[contractor].contractor);
-    }
-
-    function rejectContractor(address contractor) external onlyOwner {
-        require(isContractor(contractor), "Contractor does not exist.");
-        require(getContractorStatus(contractor) == Status.PendingApproval);
-
-        changeContractorStatus(contractor, Status.Rejected);
-
-        emit ContractorRejected(contractor);
-    }
-
-    function revokeContractor(address contractor) external onlyOwner {
-        require(isContractor(contractor), "Contractor does not exist");
-        require(getContractorStatus(contractor) == Status.Approved);
-
-        changeContractorStatus(contractor, Status.Revoked);
-
-        emit ContractorRevoked(contractor);
-    }
-
     function createContract(
-        string calldata _description,
-        uint _bidDeadline,
-        uint _dailyPenaltyPerThousand,
-        uint _maxPenaltyPercent
+        string calldata description,
+        uint bidDeadline,
+        uint dailyPenaltyPerThousand,
+        uint maxPenaltyPercent
     ) external onlyOwner {
-        _counter.increment();
-        uint256 contractId = _counter.current();
+        _contractCounter.increment();
+        uint256 contractId = _contractCounter.current();
 
         contracts[contractId] = Contract(
             contractId,
-            _description,
-            _bidDeadline,
+            description,
+            bidDeadline,
             0,
-            _dailyPenaltyPerThousand,
-            _maxPenaltyPercent,
+            dailyPenaltyPerThousand,
+            maxPenaltyPercent,
             address(0),
             ContractStatus.Open,
             new uint[](0),
@@ -198,94 +144,94 @@ contract Tender {
         );
         emit ContractCreated(
             contractId,
-            _description,
-            _bidDeadline,
-            _dailyPenaltyPerThousand,
-            _maxPenaltyPercent
+            description,
+            bidDeadline,
+            dailyPenaltyPerThousand,
+            maxPenaltyPercent
         );
     }
 
-    function cancelContract(uint _contractId) public onlyOwner {
+    function cancelContract(uint contractId) public onlyOwner {
         require(
-            getContractStatus(_contractId) != ContractStatus.Canceled,
+            getContractStatus(contractId) != ContractStatus.Canceled,
             "Contract has already been canceled."
         );
 
-        contracts[_contractId].contractStatus = ContractStatus.Canceled;
-        contracts[_contractId].awardedTo = address(0);
+        contracts[contractId].contractStatus = ContractStatus.Canceled;
+        contracts[contractId].awardedTo = address(0);
 
-        emit ContractCanceled(_contractId);
+        emit ContractCanceled(contractId);
     }
 
-    function closeContract(uint _contractId) public onlyOwner {
-        require(isContract(_contractId), "Contract does not exist.");
-        require(getContractStatus(_contractId) == ContractStatus.Open, "Contract is not open for bids.");
-        require(block.timestamp > contracts[_contractId].bidDeadline, "Bid deadline has not passed yet.");
+    function closeContract(uint contractId) public onlyOwner {
+        require(isContract(contractId), "Contract does not exist.");
+        require(getContractStatus(contractId) == ContractStatus.Open, "Contract is not open for bids.");
+        require(block.timestamp > contracts[contractId].bidDeadline, "Bid deadline has not passed yet.");
 
-        changeContractStatus(_contractId, ContractStatus.Closed);
+        changeContractStatus(contractId, ContractStatus.Closed);
 
-        emit ContractClosed(_contractId);
+        emit ContractClosed(contractId);
     }
 
     function submitBid(
         uint amount,
         uint duration,
-        uint _contractId
-    ) external onlyApprovedContractors {
-        require(isContract(_contractId), "Contract does not exist.");
-        require(isContractOpen(_contractId), "Contract is not open.");
+        uint contractId
+    ) external {
+        require(isContract(contractId), "Contract does not exist.");
+        require(isContractOpen(contractId), "Contract is not open.");
         require(
-            !isAlreadyBiddedByContractor(_contractId),
+            !isAlreadyBiddedByContractor(contractId),
             "Only one bid can be submitted to a contract by same contractor."
         );
 
-        _counter.increment();
-        uint bidId = _counter.current();
+        _bidCounter.increment();
+        uint bidId = _bidCounter.current();
         bids[bidId] = Bid(
             bidId,
             msg.sender,
             amount,
             duration,
-            _contractId,
+            contractId,
             BidStatus.Submitted
         );
 
-        Contract storage payingContract = contracts[_contractId];
+        Contract storage payingContract = contracts[contractId];
         payingContract.bidIds.push(bidId);
 
-        emit BidSubmitted(bidId, _contractId, amount, duration);
+        emit BidSubmitted(bidId, contractId, amount, duration);
     }
 
-    function withdrawBid(uint _bidId) external onlyApprovedContractors {
+    function withdrawBid(uint bidId) external {
         require(isContractor(msg.sender), "Contractor does not exist.");
-        require(isBid(_bidId), "Bid does not exist.");
-        require(getBidStatus(_bidId) == BidStatus.Submitted,
+        require(isBid(bidId), "Bid does not exist.");
+        require(getBidStatus(bidId) == BidStatus.Submitted,
             "Only submitted bids can be withdrawn"
         );
         require(
-            isContractOpen(bids[_bidId].contractId),
+            isContractOpen(bids[bidId].contractId),
             "You can only withdraw bids from open contracts."
         );
         require(
-            bids[_bidId].contractor == msg.sender,
+            bids[bidId].contractor == msg.sender,
             "Only bidder can withdraw the bid"
         );
 
-        bids[_bidId].bidStatus = BidStatus.Withdrawn;
+        bids[bidId].bidStatus = BidStatus.Withdrawn;
 
-        emit BidWithdrawn(_bidId);
+        emit BidWithdrawn(bidId);
     }
 
-    function awardBid(uint _bidId) external onlyOwner {
-        require(isBid(_bidId), "Bid does not exist");
-        uint contractId = bids[_bidId].contractId;
+    function awardBid(uint bidId) external onlyOwner {
+        require(isBid(bidId), "Bid does not exist");
+        uint contractId = bids[bidId].contractId;
         require(isContract(contractId), "Contract does not exist");
         require(
             getContractStatus(contractId) == ContractStatus.Closed,
             "Contract is not closed."
         );
         require(
-            getBidStatus(_bidId) == BidStatus.Submitted,
+            getBidStatus(bidId) == BidStatus.Submitted,
             "Only submitted bids can be awarded."
         );
         require(
@@ -293,68 +239,68 @@ contract Tender {
             "Contract has already been awarded."
         );
         require(
-            isBidSubmittedToContract(_bidId, contractId),
+            isBidSubmittedToContract(bidId, contractId),
             "Bid is not submitted to this contract."
         );
 
-        bids[_bidId].bidStatus = BidStatus.Awarded;
-        contracts[contractId].awardedTo = bids[_bidId].contractor;
-        contracts[contractId].bidAmount = bids[_bidId].amount;
-        contracts[contractId].plannedDuration = bids[_bidId].duration;
+        bids[bidId].bidStatus = BidStatus.Awarded;
+        contracts[contractId].awardedTo = bids[bidId].contractor;
+        contracts[contractId].bidAmount = bids[bidId].amount;
+        contracts[contractId].plannedDuration = bids[bidId].duration;
         contracts[contractId].contractStatus = ContractStatus.Awarded;
 
         emit BidAwarded(
-            bids[_bidId].bidId,
-            bids[_bidId].contractor,
-            bids[_bidId].amount
+            bids[bidId].bidId,
+            bids[bidId].contractor,
+            bids[bidId].amount
         );
     }
 
-    function depositContractAmount(uint _contractId) public payable onlyOwner {
+    function depositContractAmount(uint contractId) public payable onlyOwner {
         require(
-            msg.value >= contracts[_contractId].bidAmount,
+            msg.value >= contracts[contractId].bidAmount,
             "Amount must be equal to or greater than bidAmount."
         );
-        contracts[_contractId].bidAmount = msg.value;
+        contracts[contractId].bidAmount = msg.value;
     }
 
-    function startWorkInContract(uint _contractId) external onlyOwner {
-        require(isContract(_contractId), "Contract does not exist.");
+    function startWorkInContract(uint contractId) external onlyOwner {
+        require(isContract(contractId), "Contract does not exist.");
         require(
-            getContractStatus(_contractId) == ContractStatus.Awarded,
+            getContractStatus(contractId) == ContractStatus.Awarded,
             "Contract is not awarded."
         );
 
-        changeContractStatus(_contractId, ContractStatus.WorkInProgress);
-        contracts[_contractId].workStarted = block.timestamp;
+        changeContractStatus(contractId, ContractStatus.WorkInProgress);
+        contracts[contractId].workStarted = block.timestamp;
     }
 
-    function completeWorkInContract(uint _contractId) external onlyOwner {
-        require(isContract(_contractId), "Contract does not exist.");
+    function completeWorkInContract(uint contractId) external onlyOwner {
+        require(isContract(contractId), "Contract does not exist.");
         require(
-            getContractStatus(_contractId) == ContractStatus.WorkInProgress,
+            getContractStatus(contractId) == ContractStatus.WorkInProgress,
             "Contract is not marked as InProgress."
         );
 
-        changeContractStatus(_contractId, ContractStatus.WorkCompleted);
-        contracts[_contractId].workCompleted = block.timestamp;
+        changeContractStatus(contractId, ContractStatus.WorkCompleted);
+        contracts[contractId].workCompleted = block.timestamp;
     }
 
-    function payAwardedBid(uint _contractId) external onlyOwner {
-        require(isContract(_contractId), "Contract does not exist");
+    function payAwardedBid(uint contractId) external onlyOwner {
+        require(isContract(contractId), "Contract does not exist");
         require(
-            getContractStatus(_contractId) == ContractStatus.WorkCompleted,
+            getContractStatus(contractId) == ContractStatus.WorkCompleted,
             "Contract is not marked as WorkCompleted."
         );
 
-        Contract storage payingContract = contracts[_contractId];
+        Contract storage payingContract = contracts[contractId];
         require(payingContract.isPaid == false, "Contractor is already paid.");
         require(
             isContractor(payingContract.awardedTo),
             "Contractor does not exist."
         );
 
-        uint paymentAmount = calculatePayment(_contractId);
+        uint paymentAmount = calculatePayment(contractId);
         require(getContractBalance() >= paymentAmount);
         payable(payingContract.awardedTo).transfer(paymentAmount);
         payingContract.isPaid = true;
@@ -362,13 +308,13 @@ contract Tender {
         emit BidderPaid(payingContract.awardedTo, paymentAmount);
     }
 
-    function calculatePayment(uint _contractId) public view returns (uint) {
-        require(isContract(_contractId), "Contract does not exist.");
+    function calculatePayment(uint contractId) public view returns (uint) {
+        require(isContract(contractId), "Contract does not exist.");
         require(
-            getContractStatus(_contractId) == ContractStatus.WorkCompleted,
+            getContractStatus(contractId) == ContractStatus.WorkCompleted,
             "Contract is not marked as WorkCompleted."
         );
-        Contract storage payingContract = contracts[_contractId];
+        Contract storage payingContract = contracts[contractId];
 
         uint workedDuration = (payingContract.workCompleted -
             payingContract.workStarted) / 86400;
@@ -396,23 +342,37 @@ contract Tender {
     }
 
     function changeContractStatus(
-        uint _contractId,
-        ContractStatus _contractStatus
+        uint contractId,
+        ContractStatus contractStatus
     ) internal onlyOwner {
-        require(isContract(_contractId), "Contract does not exist.");
-        contracts[_contractId].contractStatus = _contractStatus;
+        require(isContract(contractId), "Contract does not exist.");
+        contracts[contractId].contractStatus = contractStatus;
 
         emit ContractStatusChanged(
-            contracts[_contractId].contractId,
-            contracts[_contractId].contractStatus
+            contracts[contractId].contractId,
+            contracts[contractId].contractStatus
         );
     }
 
-    //FOR TESTING PURPOSES DELETE BEFORE DEPLOYING
-    function resetContractor(address contractor) external onlyOwner {
-        require(isContractor(contractor), "Contractor does not exist.");
-        changeContractorStatus(contractor, Status.PendingApproval);
+    function getOpenContracts() external view returns(Contract[] memory){
+      uint count = 0;
+      uint length = _contractCounter.current();
+      for(uint i =1; i<=length;i++){
+        if(contracts[i].contractStatus == ContractStatus.Open) {
+          count++;
+        }
+      }
+      Contract[] memory openContracts = new Contract[](count);
+      count = 0;
+      for (uint i=1;i<=length;i++){
+        if(contracts[i].contractStatus == ContractStatus.Open){
+          openContracts[count] = contracts[i];
+          count++;
+        }
+      }
+      return openContracts;
     }
+
 
     //FOR TESTING PURPOSES DELETE BEFORE DEPLOYING
     function resetContract(uint _contractId) external onlyOwner {
@@ -423,26 +383,50 @@ contract Tender {
 
     // QUERY FUNCTIONS
 
+    function getOwner() external view returns(address){
+      return owner;
+    }
+
+    function getContractor(address contractor) external view returns (Contractor memory) {
+        require(isContractor(contractor), "Contractor does not exist.");
+        return contractors[contractor];
+    }  
+
+    function getContract(uint contractId) external view returns (Contract memory) {
+        require(isContract(contractId), "Contract does not exist.");
+        return contracts[contractId];
+    }
+
+    function getBid(uint bidId) external view returns (Bid memory) {
+        require(isBid(bidId), "Bid does not exist.");
+        return bids[bidId];
+    }
+
+    function getContractStatus(
+        uint contractId
+    ) private view returns (ContractStatus) {
+        require(isContract(contractId), "Contract does not exist.");
+        return contracts[contractId].contractStatus;
+    }
+
+    function getBidStatus(uint bidId) private view returns (BidStatus) {
+        require(isBid(bidId), "Bid does not exist.");
+        return bids[bidId].bidStatus;
+    }
+
+    function getBidsOfContract(uint contractId) private view returns (uint[] storage) {
+        require(isContract(contractId), "Contract does not exist.");
+
+        return contracts[contractId].bidIds;
+    }
+
     function getContractBalance() public view returns (uint) {
         return address(this).balance;
     }
+    
 
     function isContractor(address contractor) private view returns (bool) {
         return contractors[contractor].contractor != address(0);
-    }
-
-    function getContractor(
-        address contractor
-    ) external view returns (Contractor memory) {
-        require(isContractor(contractor), "Contractor does not exist.");
-        return contractors[contractor];
-    }
-
-    function getContractorStatus(
-        address contractor
-    ) private view returns (Status) {
-        require(isContractor(contractor), "Contractor does not exist.");
-        return contractors[contractor].status;
     }
 
     function isContract(uint contractId) private view returns (bool) {
@@ -451,30 +435,6 @@ contract Tender {
 
     function isBid(uint _bidId) private view returns (bool) {
         return bids[_bidId].bidId != 0;
-    }
-
-    function getContract(
-        uint _contractId
-    ) external view returns (Contract memory) {
-        require(isContract(_contractId), "Contract does not exist.");
-        return contracts[_contractId];
-    }
-
-    function getBid(uint _bidId) external view returns (Bid memory) {
-        require(isBid(_bidId), "Bid does not exist.");
-        return bids[_bidId];
-    }
-
-    function getBidStatus(uint _bidId) private view returns (BidStatus) {
-        require(isBid(_bidId), "Bid does not exist.");
-        return bids[_bidId].bidStatus;
-    }
-
-    function getContractStatus(
-        uint _contractId
-    ) private view returns (ContractStatus) {
-        require(isContract(_contractId), "Contract does not exist.");
-        return contracts[_contractId].contractStatus;
     }
 
     function isContractOpen(uint _contractId) private view returns (bool) {
@@ -509,13 +469,5 @@ contract Tender {
             }
         }
         return false;
-    }
-
-    function getBidsOfContract(
-        uint _contractId
-    ) private view returns (uint[] storage) {
-        require(isContract(_contractId), "Contract does not exist.");
-
-        return contracts[_contractId].bidIds;
     }
 }
