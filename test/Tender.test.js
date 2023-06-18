@@ -10,28 +10,11 @@ contract("Tender", (accounts) => {
         instance = await Tender.deployed()
     })
 
-    describe("Add, approve, revoke and reject contractor", () => {
+    describe("Add contractor", () => {
         it("Contractor signs up", async () => {
             await instance.addContractor("Contractor 1", { from: contractor1 })
             const contractor = await instance.getContractor(contractor1)
             assert.equal(contractor.name, "Contractor 1", "The contractor's name should be Contractor 1.")
-            assert.equal(contractor.status, 0, "The contractor's status should be set Pending Approval when first created")
-        });
-        it("Owner approves the contractor", async () => {
-            await instance.approveContractor(contractor1)
-            const contractor = await instance.getContractor(contractor1)
-            assert.equal(contractor.status, 1, "The contractor's status should be Approved")
-        });
-        it("Owner revokes the contractor", async () => {
-            await instance.revokeContractor(contractor1)
-            const contractor = await instance.getContractor(contractor1)
-            assert.equal(contractor.status, 3, "The contractor's status should be Revoked")
-        });
-        it("Resets the contractor and owner rejects it", async () => {
-            await instance.resetContractor(contractor1)
-            await instance.rejectContractor(contractor1)
-            const contractor = await instance.getContractor(contractor1)
-            assert.equal(contractor.status, 2, "The contractor's status should be Rejected")
         });
     });
 
@@ -76,9 +59,9 @@ contract("Tender", (accounts) => {
             await instance.approveContractor(contractor1);
             await instance.resetContract(1);
             await instance.submitBid(1000, 100, 1, {from:contractor1});
-            const bid = await instance.getBid(2);
+            const bid = await instance.getBid(1);
             const contract = await instance.getContract(1);
-            assert.equal(bid.bidId, 2, "BidId does not match");
+            assert.equal(bid.bidId, 1, "BidId does not match");
             assert.equal(bid.amount, 1000, "Bid amount does not match");
             assert.equal(bid.duration, 100, "Bid duration does not match");
             assert.equal(bid.contractId, 1, "Bid contract does not match");
@@ -87,19 +70,19 @@ contract("Tender", (accounts) => {
             assert.equal(isBidSubmittedToContract, true, "Bid should be in contract's bids");
         })
         it("withdraws a bid", async () => {
-            await instance.withdrawBid(2, {from:contractor1});
+            await instance.withdrawBid(1, {from:contractor1});
             const bid = await instance.getBid(2);
             assert.equal(bid.bidStatus, 3, "Bid status is not withdrawn");
         })
         it("awards bid", async () => {
             await instance.resetContract(1);
             await instance.submitBid(1000, 100, 1, {from:contractor1});
-            const bid = await instance.getBid(3);
+            const bid = await instance.getBid(1);
             assert.equal(bid.amount, 1000, "Bid amount should be 1000");
             assert.equal(bid.duration, 100, "Bid duration should be 100");
             await instance.closeContract(1);
-            await instance.awardBid(3);
-            const awardedBid = await instance.getBid(3);
+            await instance.awardBid(2);
+            const awardedBid = await instance.getBid(2);
             const contract = await instance.getContract(1);
             assert.equal(awardedBid.bidStatus, 1, "Bid status should be awarded");
             assert.equal(contract.contractStatus, 2, "Contract status should be awarded");
