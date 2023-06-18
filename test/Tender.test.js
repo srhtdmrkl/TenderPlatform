@@ -55,8 +55,6 @@ contract("Tender", (accounts) => {
     });
     describe("Submit, withdraw and award bid", () => {
         it("submits a bid", async () => {
-            await instance.resetContractor(contractor1);
-            await instance.approveContractor(contractor1);
             await instance.resetContract(1);
             await instance.submitBid(1000, 100, 1, {from:contractor1});
             const bid = await instance.getBid(1);
@@ -66,18 +64,18 @@ contract("Tender", (accounts) => {
             assert.equal(bid.duration, 100, "Bid duration does not match");
             assert.equal(bid.contractId, 1, "Bid contract does not match");
             assert.equal(bid.bidStatus, 0, "Bid status should be submitted");
-            const isBidSubmittedToContract = await instance.isBidSubmittedToContract(2,1);
+            const isBidSubmittedToContract = await instance.isBidSubmittedToContract(1,1);
             assert.equal(isBidSubmittedToContract, true, "Bid should be in contract's bids");
         })
         it("withdraws a bid", async () => {
             await instance.withdrawBid(1, {from:contractor1});
-            const bid = await instance.getBid(2);
+            const bid = await instance.getBid(1);
             assert.equal(bid.bidStatus, 3, "Bid status is not withdrawn");
         })
         it("awards bid", async () => {
             await instance.resetContract(1);
             await instance.submitBid(1000, 100, 1, {from:contractor1});
-            const bid = await instance.getBid(1);
+            const bid = await instance.getBid(2);
             assert.equal(bid.amount, 1000, "Bid amount should be 1000");
             assert.equal(bid.duration, 100, "Bid duration should be 100");
             await instance.closeContract(1);
